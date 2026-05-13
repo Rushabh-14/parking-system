@@ -1,0 +1,306 @@
+Email Notifications
+
+Send automatic emails for:
+
+Successful registration
+
+Parking confirmation (ticket details)
+
+Payment receipt
+
+Forgot password OTP (already added)
+
+6. Role-Based Login Redirect
+
+After login:
+
+If admin → redirect to admin_dashboard.php
+
+If user → redirect to user_dashboard.php
+
+if ($_SESSION['role'] == 'admin') {
+    header('Location: admin_dashboard.php');
+} else {
+    header('Location: user_dashboard.php');
+}
+
+7. Security Enhancements
+
+Use prepared statements (mysqli_stmt) to prevent SQL injection.
+
+Store only hashed passwords.
+
+Implement account lock after 3 failed login attempts.
+
+Add “Remember Me” (with cookies) and auto-logout after inactivity.
+
+current active users/admins
+
+Pricing and Payment
+Add entry/exit time calculation to generate parking fees.
+
+License Plate Recognition (optional)
+Integrate with an image upload and an OCR API to read vehicle numbers automatically.
+
+Admin Analytics Page
+Use charts to visualize daily/weekly parking usage, income, and peak hours.
+
+User History Page
+Each user can see their past parking logs, with in/out time and total charge.
+
+Email Alerts
+Send confirmation emails for successful parking, payment, or account changes.
+
+Would you like me to combine all of this (login, register, forgot password, logout, and IP tracking) into a complete folder structure for your parking system (with all PHP files organized)? That would give you a ready-to-run base project.
+
+
+
+
+
+
+
+
+
+
+Perfect — that helps a lot 👍
+
+Since you haven’t added login, registration, logout, or the admin/user + activity_log + password_resets database structure yet, I’ll give you a complete clean setup that fits directly into your existing parking system — no conflicts, easy to drop in.
+
+🧱 1️⃣ Database Structure (Create These Tables)
+
+Run these SQL commands in phpMyAdmin or your MySQL terminal:
+
+CREATE DATABASE IF NOT EXISTS parking_system;
+USE parking_system;
+
+-- 🧍 Admin table
+CREATE TABLE admin (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(100) UNIQUE NOT NULL,
+  password VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 👤 User table
+CREATE TABLE user (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(100) UNIQUE NOT NULL,
+  password VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 🧾 Activity Log (for login/register/logout tracking)
+CREATE TABLE activity_log (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_type ENUM('admin', 'user') NOT NULL,
+  user_id INT NOT NULL,
+  action ENUM('register', 'login', 'logout') NOT NULL,
+  ip_address VARCHAR(45),
+  time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 🔐 Password Reset Table (for Forgot Password OTP)
+CREATE TABLE password_resets (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(100) NOT NULL,
+  otp VARCHAR(6) NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+⚙️ 2️⃣ Folder Structure (simple setup)
+parking-system/
+│
+├── dbconn.php
+├── index.php              ← login page
+├── register.php           ← registration page
+├── login.php
+├── logout.php
+│
+├── forgot_password.php
+├── send_otp.php
+├── verify_otp.php
+├── reset_password.php
+│
+├── dashboard.php
+│
+├── PHPMailer/
+│   └── PHPMailerAutoload.php
+│
+└── assets/
+    ├── style.css
+    └── js/
+        └── timer.js
+
+🧩 3️⃣ dbconn.php
+
+Create a new connection file:
+
+<?php
+$servername = "localhost";
+$username = "root";
+$password = "";
+$database = "parking_system";
+
+$conn = mysqli_connect($servername, $username, $password, $database);
+
+if (!$conn) {
+    die("❌ Database connection failed: " . mysqli_connect_error());
+}
+?>
+
+👥 4️⃣ register.php
+
+Registers new admins or users + logs registration activity.
+
+<?php
+include('dbconn.php');
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $name = $_POST['name'];
+    $email = $_POST['email'];
+    $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
+    $type = $_POST['type']; // admin or user
+    $ip = $_SERVER['REMOTE_ADDR'];
+
+    $table = ($type == 'admin') ? 'admin' : 'user';
+    $sql = "INSERT INTO $table (name, email, password) VALUES ('$name', '$email', '$password')";
+
+    if (mysqli_query($conn, $sql)) {
+        $id = mysqli_insert_id($conn);
+        mysqli_query($conn, "INSERT INTO activity_log (user_type, user_id, action, ip_address)
+                             VALUES ('$type', '$id', 'register', '$ip')");
+        echo "✅ Registration successful! <a href='index.php'>Login</a>";
+    } else {
+        echo "❌ Error: " . mysqli_error($conn);
+    }
+}
+?>
+
+<form method="POST">
+  <h2>Register</h2>
+  <label>Name:</label><input type="text" name="name" required><br>
+  <label>Email:</label><input type="email" name="email" required><br>
+  <label>Password:</label><input type="password" name="password" required><br>
+  <label>Type:</label>
+  <select name="type">
+    <option value="user">User</option>
+    <option value="admin">Admin</option>
+  </select><br>
+  <button type="submit">Register</button>
+</form>
+
+🔑 5️⃣ index.php (Login Page)
+<form action="login.php" method="POST">
+  <h2>Login</h2>
+  <label>Email:</label><input type="email" name="email" required><br>
+  <label>Password:</label><input type="password" name="password" required><br>
+  <button type="submit">Login</button>
+</form>
+<p><a href="forgot_password.php">Forgot Password?</a></p>
+<p><a href="register.php">Create Account</a></p>
+
+🚪 6️⃣ login.php
+
+Handles login for both admin and user + logs activity.
+
+<?php
+include('dbconn.php');
+session_start();
+
+$email = $_POST['email'];
+$password = $_POST['password'];
+$ip = $_SERVER['REMOTE_ADDR'];
+
+// Check Admin Table
+$sql_admin = "SELECT * FROM admin WHERE email='$email'";
+$r_admin = mysqli_query($conn, $sql_admin);
+
+if (mysqli_num_rows($r_admin) > 0) {
+    $admin = mysqli_fetch_assoc($r_admin);
+    if (password_verify($password, $admin['password'])) {
+        $_SESSION['id'] = $admin['id'];
+        $_SESSION['role'] = 'admin';
+        mysqli_query($conn, "INSERT INTO activity_log (user_type, user_id, action, ip_address)
+                             VALUES ('admin', '{$admin['id']}', 'login', '$ip')");
+        header("Location: dashboard.php");
+        exit;
+    }
+}
+
+// Check User Table
+$sql_user = "SELECT * FROM user WHERE email='$email'";
+$r_user = mysqli_query($conn, $sql_user);
+
+if (mysqli_num_rows($r_user) > 0) {
+    $user = mysqli_fetch_assoc($r_user);
+    if (password_verify($password, $user['password'])) {
+        $_SESSION['id'] = $user['id'];
+        $_SESSION['role'] = 'user';
+        mysqli_query($conn, "INSERT INTO activity_log (user_type, user_id, action, ip_address)
+                             VALUES ('user', '{$user['id']}', 'login', '$ip')");
+        header("Location: dashboard.php");
+        exit;
+    }
+}
+
+echo "❌ Invalid email or password.";
+?>
+
+🚷 7️⃣ logout.php
+
+Logs logout time and clears session.
+
+<?php
+session_start();
+include('dbconn.php');
+
+$ip = $_SERVER['REMOTE_ADDR'];
+
+if (isset($_SESSION['role'])) {
+    $role = $_SESSION['role'];
+    $id = $_SESSION['id'];
+    mysqli_query($conn, "INSERT INTO activity_log (user_type, user_id, action, ip_address)
+                         VALUES ('$role', '$id', 'logout', '$ip')");
+}
+
+session_unset();
+session_destroy();
+
+header("Location: index.php");
+exit;
+?>
+
+🧾 8️⃣ forgot_password.php + send_otp.php + verify_otp.php + reset_password.php + timer.js
+
+These are exactly as shared in the previous message —
+you can just copy-paste those directly (they are already independent and complete).
+
+🖥️ 9️⃣ dashboard.php (simple protected page)
+<?php
+session_start();
+if (!isset($_SESSION['id'])) {
+    header("Location: index.php");
+    exit;
+}
+?>
+<h2>Welcome, <?php echo $_SESSION['role']; ?>!</h2>
+<p>You are logged in successfully.</p>
+<a href="logout.php">Logout</a>
+
+
+✅ Summary of What You Now Have
+
+Feature	File	Purpose
+Admin & User tables	MySQL	Store login credentials
+Activity log	MySQL	Records register/login/logout + IP
+Password reset table	MySQL	Manages OTP-based reset
+register.php	PHP	Registration page
+index.php / login.php	PHP	Login for admin & user
+logout.php	PHP	Logs out user
+forgot_password.php flow	PHP	Email OTP password reset
+dashboard.php	PHP	Protected page after login
+timer.js	JS	Controls resend OTP timer
+
